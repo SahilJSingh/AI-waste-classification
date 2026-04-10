@@ -1,5 +1,5 @@
 tensorflow-cpu
 streamlit
-opencv-python-headless
+streamlit-webrtc
 pillow
 numpy
