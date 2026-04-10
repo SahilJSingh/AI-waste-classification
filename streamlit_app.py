@@ -4,8 +4,7 @@ import numpy as np
 import cv2
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
-# --- 1. HIERARCHY CONFIGURATION (From PROJECT VER 2.ipynb) ---
-# Must match your folder names exactly
+# --- CONFIGURATION (Tailored to PROJECT VER 2.ipynb) ---
 SUBCATEGORIES = [
     'battery', 'biological', 'cardboard', 'clothes', 'glass',
     'metal', 'paper', 'plastic', 'shoes', 'trash'
@@ -18,58 +17,49 @@ HIERARCHY_MAP = {
     'battery': 'Hazardous Waste',
 }
 
-# --- 2. OPTIMIZED MODEL LOADING ---
+# --- OPTIMIZED MODEL LOADING ---
 @st.cache_resource
 def load_trained_model():
-    # compile=False reduces RAM usage significantly to prevent Segmentation Faults
-    model = tf.keras.models.load_model('waste_hierarchical_model.h5', compile=False)
-    return model
+    # compile=False prevents the model from loading extra training parameters,
+    # significantly reducing RAM usage to prevent Segmentation Faults.
+    return tf.keras.models.load_model('waste_hierarchical_model.h5', compile=False)
 
-# Initialize model
 try:
     model = load_trained_model()
 except Exception as e:
-    st.error(f"Model Load Error: {e}")
+    st.error(f"Error loading model: {e}")
     st.stop()
 
-# --- 3. LIVE VIDEO PROCESSING CLASS ---
-class WasteTransformer(VideoTransformerBase):
+# --- LIVE VIDEO PROCESSING ---
+class WasteClassifier(VideoTransformerBase):
     def transform(self, frame):
-        # Convert frame to array
         img = frame.to_ndarray(format="bgr24")
         
-        # PREPROCESSING: Resize and Rescale (1./255)
+        # Preprocessing: Resize to 224x224 and Rescale (1./255)
         resized = cv2.resize(img, (224, 224))
         rgb = cv2.cvtColor(resized, cv2.COLOR_BGR2RGB) / 255.0
         tensor = np.expand_dims(rgb, axis=0)
 
-        # PREDICTION
+        # Prediction
         preds = model.predict(tensor, verbose=0)
         idx = np.argmax(preds)
         
-        # HIERARCHICAL LOOKUP
+        # Hierarchical Mapping
         subcat = SUBCATEGORIES[idx]
         parent = HIERARCHY_MAP.get(subcat, 'Unknown')
-        conf = np.max(preds) * 100
+        confidence = np.max(preds) * 100
 
-        # OVERLAY RESULTS ON LIVE FEED
-        label = f"{subcat.capitalize()} -> {parent} ({conf:.1f}%)"
+        # Draw results on video
+        label = f"{subcat.capitalize()} ({parent}): {confidence:.1f}%"
         cv2.putText(img, label, (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
         
         return img
 
-# --- 4. STREAMLIT UI ---
-st.set_page_config(page_title="AI Waste Scanner", layout="centered")
 st.title("🎥 Live Hierarchical Waste Classifier")
-st.write("Point your camera at an object to see its subcategory and disposal bin.")
+st.write("Point your camera at waste to see the category and bin.")
 
-# The ICE Servers help establish the video connection through firewalls
 webrtc_streamer(
-    key="waste-live",
-    video_transformer_factory=WasteTransformer,
+    key="waste-scanner",
+    video_transformer_factory=WasteClassifier,
     rtc_configuration={"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 )
-
-st.sidebar.markdown("### Model Details")
-st.sidebar.write("Backbone: MobileNetV2")
-st.sidebar.write("Input Size: 224x224")
